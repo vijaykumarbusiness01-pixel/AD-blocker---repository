@@ -23,6 +23,9 @@ public class AdBlockVpnService extends VpnService {
     private static final String DNS_IP = "10.111.0.1";
     private static final String UPSTREAM_DNS = "1.1.1.1";
     private volatile boolean running = false;
+    private static volatile boolean serviceRunning = false;
+    private int blockedCount = 0;
+    public static boolean isRunning() { return serviceRunning; }
     private ParcelFileDescriptor tun;
     private Thread worker;
 
@@ -33,7 +36,14 @@ public class AdBlockVpnService extends VpnService {
         "pubmatic.com","openx.net","casalemedia.com","zedo.com","adroll.com",
         "popads.net","popcash.net","propellerads.com","exoclick.com",
         "trafficjunky.net","mgid.com","revcontent.com","bidvertiser.com",
-        "smartadserver.com"
+        "smartadserver.com", "googletagmanager.com", "googletagservices.com",
+        "pagead2.googlesyndication.com", "securepubads.g.doubleclick.net",
+        "adservice.google.co.in", "ads.google.com", "ads.youtube.com",
+        "amazon-adsystem.com", "advertising.com", "serving-sys.com",
+        "publift.com", "33across.com", "sharethrough.com", "triplelift.com",
+        "yieldmo.com", "lijit.com", "media.net", "revcontent.com",
+        "scorecardresearch.com", "quantserve.com", "hotjar.com",
+        "clarity.ms", "mixpanel.com", "app-measurement.com"
     ));
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
@@ -71,10 +81,12 @@ public class AdBlockVpnService extends VpnService {
             tun = builder.establish();
             if (tun == null) { stopSelf(); return; }
             running = true;
+            serviceRunning = true;
             worker = new Thread(this::readPackets, "UAB-DNS-Worker");
             worker.start();
         } catch (Exception e) {
             running = false;
+            serviceRunning = false;
             stopSelf();
         }
     }
@@ -106,6 +118,8 @@ public class AdBlockVpnService extends VpnService {
             String domain = readQName(query).toLowerCase(Locale.ROOT);
             byte[] dnsResponse;
             if (isBlocked(domain)) {
+                blockedCount++;
+                getSharedPreferences("uab_stats", MODE_PRIVATE).edit().putInt("blocked", blockedCount).apply();
                 dnsResponse = blockedResponse(query);
             } else {
                 dnsResponse = forward(query);
@@ -191,6 +205,7 @@ public class AdBlockVpnService extends VpnService {
 
     @Override public void onDestroy() {
         running = false;
+        serviceRunning = false;
         try { if (tun != null) tun.close(); } catch (Exception ignored) {}
         super.onDestroy();
     }
